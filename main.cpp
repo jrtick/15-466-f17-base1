@@ -9,14 +9,78 @@
 #include <iostream>
 #include <stdexcept>
 
+#include <functional> //cleanly pass a function into a function
+
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
+
+struct Tile{
+	int tileNum;
+	int x,y; //position on board
+	bool flag;
+	Tile *left,*right,*up,*down;
+	Tile(int tileNum, int x, int y){
+		this->x=x;
+		this->y=y;
+		this->tileNum = tileNum;
+		left=right=up=down=nullptr;
+		flag = false;
+	}
+};
+struct Board{
+	Tile* center;
+	int minx,miny,maxx,maxy;
+	Board(Tile* first){
+		center = first;
+		minx=std::min(first->x,0);
+		maxx=std::max(first->x,0);
+		miny=std::min(first->y,0);
+		maxy=std::max(first->y,0);
+	}
+	void connectTile(bool flag,Tile* tile,Tile* curTile){
+		curTile->flag = flag; //set as processed
+
+		//check if adjacent
+		if(curTile->x==tile->x && curTile->y==tile->y+1) tile->up = curTile;
+		if(curTile->x==tile->x && curTile->y==tile->y-1) tile->down = curTile;
+		if(curTile->x==tile->x-1 && curTile->y==tile->y) tile->left = curTile;
+		if(curTile->x==tile->x+1 && curTile->y==tile->y) tile->right = curTile;
+
+		//recurse
+		if(curTile->left!=nullptr && curTile->left->flag != flag) connectTile(flag,tile,curTile->left);
+		if(curTile->right!=nullptr && curTile->right->flag != flag) connectTile(flag,tile,curTile->right);
+		if(curTile->up!=nullptr && curTile->up->flag != flag) connectTile(flag,tile,curTile->up);
+		if(curTile->down!=nullptr && curTile->down->flag != flag) connectTile(flag,tile,curTile->down);
+	}
+	void addTile(Tile* tile){
+		int x = tile->x,
+		    y = tile->y;
+		if(x>maxx) maxx=x;
+		if(x<minx) minx=x;
+		if(y>maxy) maxy=y;
+		if(y<miny) miny=y;
+
+		tile->flag = center->flag;
+		connectTile(!center->flag,tile,center);
+	}
+	int getWidth(){ return maxx-minx+1;}
+	int getHeight(){ return maxy-miny+1;}
+	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile){
+		if(curTile != nullptr && curTile != NULL && curTile->flag == flag) return;
+		curTile->flag = flag;
+		drawFn(curTile);
+		mapDraw(drawFn,flag,curTile->left);
+		mapDraw(drawFn,flag,curTile->right);
+		mapDraw(drawFn,flag,curTile->up);
+		mapDraw(drawFn,flag,curTile->down);
+	}
+};
 
 int main(int argc, char **argv) {
 	//Configuration:
 	struct {
-		std::string title = "Game1: Text/Tiles";
-		glm::uvec2 size = glm::uvec2(640, 480);
+		std::string title = "Carcassonne Lite";
+		glm::uvec2 size = glm::uvec2(640, 640);
 	} config;
 
 	//------------  initialization ------------
@@ -87,7 +151,7 @@ int main(int argc, char **argv) {
 
 	{ //load texture 'tex':
 		std::vector< uint32_t > data;
-		if (!load_png("elements.png", &tex_size.x, &tex_size.y, &data, LowerLeftOrigin)) {
+		if (!load_png("tiles.png", &tex_size.x, &tex_size.y, &data, LowerLeftOrigin)) {
 			std::cerr << "Failed to load texture." << std::endl;
 			exit(1);
 		}
@@ -192,9 +256,14 @@ int main(int argc, char **argv) {
 	};
 
 
-	auto load_sprite = [](std::string const &name) -> SpriteInfo {
-		SpriteInfo info;
-		//TODO: look up sprite name in table of sprite infos
+	auto load_sprite = [](int row, int col) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
+		SpriteInfo info; //663 x 553 image
+		#define WIDTH 663.f
+		#define HEIGHT 553.f
+		info.min_uv = glm::vec2(10/WIDTH+col*128/WIDTH,1-(10/HEIGHT+row*128/HEIGHT));
+		info.max_uv = glm::vec2(info.min_uv.x+128/WIDTH,info.min_uv.y-128/HEIGHT);
+		info.rad = glm::vec2(128/WIDTH,128/HEIGHT);
+		//printf("(%.2f,%.2f)<->(%.2f,%.2f) by (%.2f,%.2f)\n",info.min_uv.x,info.min_uv.y,info.max_uv.x,info.max_uv.y,info.rad.x,info.rad.y);
 		return info;
 	};
 
@@ -205,10 +274,14 @@ int main(int argc, char **argv) {
 
 	struct {
 		glm::vec2 at = glm::vec2(0.0f, 0.0f);
-		glm::vec2 radius = glm::vec2(10.0f, 10.0f);
+		glm::vec2 radius = glm::vec2(1.0f, 1.0f);
 	} camera;
 	//correct radius for aspect ratio:
 	camera.radius.x = camera.radius.y * (float(config.size.x) / float(config.size.y));
+
+
+	Tile center = Tile(0,0,0);
+	Board board = Board(&center);
 
 	//------------ game loop ------------
 
@@ -249,20 +322,10 @@ int main(int argc, char **argv) {
 		{ //draw game state:
 			std::vector< Vertex > verts;
 
-			//helper: add rectangle to verts:
-			auto rect = [&verts](glm::vec2 const &at, glm::vec2 const &rad, glm::u8vec4 const &tint) {
-				verts.emplace_back(at + glm::vec2(-rad.x,-rad.y), glm::vec2(0.0f, 0.0f), tint);
-				verts.emplace_back(verts.back());
-				verts.emplace_back(at + glm::vec2(-rad.x, rad.y), glm::vec2(0.0f, 1.0f), tint);
-				verts.emplace_back(at + glm::vec2( rad.x,-rad.y), glm::vec2(1.0f, 0.0f), tint);
-				verts.emplace_back(at + glm::vec2( rad.x, rad.y), glm::vec2(1.0f, 1.0f), tint);
-				verts.emplace_back(verts.back());
-			};
-
-			auto draw_sprite = [&verts](SpriteInfo const &sprite, glm::vec2 const &at, float angle = 0.0f) {
+			auto draw_sprite = [&verts](SpriteInfo const &sprite, glm::vec2 const &at, float sizeX, float sizeY=-1.f, float angle = 0.0f) {
 				glm::vec2 min_uv = sprite.min_uv;
 				glm::vec2 max_uv = sprite.max_uv;
-				glm::vec2 rad = sprite.rad;
+				glm::vec2 rad = (sizeY>0)? glm::vec2(sizeX,sizeY) : glm::vec2(sizeX,sizeX/sprite.rad.x*sprite.rad.y);
 				glm::u8vec4 tint = glm::u8vec4(0xff, 0xff, 0xff, 0xff);
 				glm::vec2 right = glm::vec2(std::cos(angle), std::sin(angle));
 				glm::vec2 up = glm::vec2(-right.y, right.x);
@@ -274,14 +337,23 @@ int main(int argc, char **argv) {
 				verts.emplace_back(at + right *  rad.x + up *  rad.y, glm::vec2(max_uv.x, max_uv.y), tint);
 				verts.emplace_back(verts.back());
 			};
+			
+			int width = board.getWidth(),
+			   height = board.getHeight();
+			
+			auto drawTile = [width,height,board,draw_sprite,load_sprite](Tile* tile){
+				int tN = tile->tileNum;
+				SpriteInfo textile = load_sprite(tN%5,tN/5); //5 columns
+				float tileSize = 2.f/std::max(width,height);
+				int x = tile->x - board.minx,
+				    y = tile->y - board.miny;
+				draw_sprite(textile,tileSize*glm::vec2(x,y),tileSize,tileSize);
+			};
+			board.mapDraw(drawTile,!board.center->flag,board.center);
 
 
-			//Draw a sprite "player" at position (5.0, 2.0):
-			static SpriteInfo player = load_sprite("player"); //TODO: hoist
-			draw_sprite(player, glm::vec2(5.0, 2.0), 0.2f);
-
-			rect(glm::vec2(0.0f, 0.0f), glm::vec2(4.0f), glm::u8vec4(0xff, 0x00, 0x00, 0xff));
-			rect(mouse * camera.radius + camera.at, glm::vec2(4.0f), glm::u8vec4(0xff, 0xff, 0xff, 0x88));
+			mouse = glm::vec2(0,0);
+			//rect(mouse * camera.radius + camera.at, glm::vec2(4.0f), glm::u8vec4(0xff, 0xff, 0xff, 0x88));
 
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
