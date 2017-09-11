@@ -38,19 +38,29 @@ struct Board{
 		maxy=std::max(first->y,0);
 	}
 	void connectTile(bool flag,Tile* tile,Tile* curTile){
+		if(curTile == nullptr || curTile == NULL || curTile->flag==flag) return;
 		curTile->flag = flag; //set as processed
 
 		//check if adjacent
-		if(curTile->x==tile->x && curTile->y==tile->y+1) tile->up = curTile;
-		if(curTile->x==tile->x && curTile->y==tile->y-1) tile->down = curTile;
-		if(curTile->x==tile->x-1 && curTile->y==tile->y) tile->left = curTile;
-		if(curTile->x==tile->x+1 && curTile->y==tile->y) tile->right = curTile;
+		if(curTile->x==tile->x && curTile->y==tile->y+1){
+			tile->up = curTile;
+			curTile->down = tile;
+		}else if(curTile->x==tile->x && curTile->y==tile->y-1){
+			tile->down = curTile;
+			curTile->up = tile;
+		}else if(curTile->x==tile->x-1 && curTile->y==tile->y){
+			tile->left = curTile;
+			curTile->right = tile;
+		}else if(curTile->x==tile->x+1 && curTile->y==tile->y){
+			tile->right = curTile;
+			curTile->left = tile;
+		}
 
 		//recurse
-		if(curTile->left!=nullptr && curTile->left->flag != flag) connectTile(flag,tile,curTile->left);
-		if(curTile->right!=nullptr && curTile->right->flag != flag) connectTile(flag,tile,curTile->right);
-		if(curTile->up!=nullptr && curTile->up->flag != flag) connectTile(flag,tile,curTile->up);
-		if(curTile->down!=nullptr && curTile->down->flag != flag) connectTile(flag,tile,curTile->down);
+		connectTile(flag,tile,curTile->left);
+		connectTile(flag,tile,curTile->right);
+		connectTile(flag,tile,curTile->up);
+		connectTile(flag,tile,curTile->down);
 	}
 	void addTile(Tile* tile){
 		int x = tile->x,
@@ -66,7 +76,7 @@ struct Board{
 	int getWidth(){ return maxx-minx+1;}
 	int getHeight(){ return maxy-miny+1;}
 	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile){
-		if(curTile != nullptr && curTile != NULL && curTile->flag == flag) return;
+		if(curTile == nullptr || curTile == NULL || curTile->flag == flag) return;
 		curTile->flag = flag;
 		drawFn(curTile);
 		mapDraw(drawFn,flag,curTile->left);
@@ -280,8 +290,16 @@ int main(int argc, char **argv) {
 	camera.radius.x = camera.radius.y * (float(config.size.x) / float(config.size.y));
 
 
-	Tile center = Tile(0,0,0);
+	Tile center = Tile(1,0,0);
 	Board board = Board(&center);
+	Tile up = Tile(2,0,1);
+	Tile down = Tile(3,0,-1);
+	Tile left = Tile(4,-1,0);
+	Tile right = Tile(5,1,0);
+	board.addTile(&up);
+	board.addTile(&down);
+	board.addTile(&left);
+	board.addTile(&right);
 
 	//------------ game loop ------------
 
@@ -330,24 +348,27 @@ int main(int argc, char **argv) {
 				glm::vec2 right = glm::vec2(std::cos(angle), std::sin(angle));
 				glm::vec2 up = glm::vec2(-right.y, right.x);
 
-				verts.emplace_back(at + right * -rad.x + up * -rad.y, glm::vec2(min_uv.x, min_uv.y), tint);
+				verts.emplace_back(at + right * -rad.x + up * -rad.y, min_uv, tint);
 				verts.emplace_back(verts.back());
 				verts.emplace_back(at + right * -rad.x + up * rad.y, glm::vec2(min_uv.x, max_uv.y), tint);
 				verts.emplace_back(at + right *  rad.x + up * -rad.y, glm::vec2(max_uv.x, min_uv.y), tint);
-				verts.emplace_back(at + right *  rad.x + up *  rad.y, glm::vec2(max_uv.x, max_uv.y), tint);
+				verts.emplace_back(at + right *  rad.x + up *  rad.y, max_uv, tint);
 				verts.emplace_back(verts.back());
 			};
 			
 			int width = board.getWidth(),
 			   height = board.getHeight();
-			
+			printf("board dimensions are %dx%d\n",width,height);
+	
 			auto drawTile = [width,height,board,draw_sprite,load_sprite](Tile* tile){
 				int tN = tile->tileNum;
-				SpriteInfo textile = load_sprite(tN%5,tN/5); //5 columns
+				SpriteInfo textile = load_sprite(tN%5,tN/5); //5 columns in tex atlas
 				float tileSize = 2.f/std::max(width,height);
 				int x = tile->x - board.minx,
 				    y = tile->y - board.miny;
-				draw_sprite(textile,tileSize*glm::vec2(x,y),tileSize,tileSize);
+				glm::vec2 center = glm::vec2(-1+0.5*tileSize,-1+0.5*tileSize)+tileSize*glm::vec2(x,y);
+				printf("drawing tile %dx%d at %.2fx%.2f with rad %.2f\n",tN%5,tN/5,center.x,center.y,tileSize);
+				draw_sprite(textile,center,0.5*tileSize,0.5*tileSize);
 			};
 			board.mapDraw(drawTile,!board.center->flag,board.center);
 
