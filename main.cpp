@@ -8,18 +8,30 @@
 #include <chrono>
 #include <iostream>
 #include <stdexcept>
+#include <stdlib.h>
 
 #include <functional> //cleanly pass a function into a function
 
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 
+//TODO: fix placing bug left of tile?
+//TODO: enforce valid tile placement (align & adjace)
+//TODO: add players and scoring
+//Bonus: tint castle on completion
+//Bonus: display textual score
+//Bonus: highlight potential tile placement
+
+enum class Terrain {Grass,Castle,End,Road}; //End is castle end
+
 struct Tile{
 	int tileNum;
 	int x,y; //position on board
 	bool flag;
+	Terrain sides[4];
+	int rotation = 0;
 	Tile *left,*right,*up,*down;
-	Tile(int tileNum, int x, int y){
+	Tile(int tileNum, int x=-1, int y=-1){
 		this->x=x;
 		this->y=y;
 		this->tileNum = tileNum;
@@ -27,7 +39,19 @@ struct Tile{
 		flag = false;
 	}
 };
-struct Board{
+struct int2{
+	int x,y;
+	int2(){ x=y=0;}
+	int2(int x,int y){
+		this->x=x;
+		this->y=y;
+	}
+};
+
+class Board{
+public:
+	int tile_freqs[20] = {0,8,1,4,9,3,3,3,3,5,2,3,4,2,4,5,4,3,3,1};
+	static Terrain sides[20][4];
 	Tile* center;
 	int minx,miny,maxx,maxy;
 	Board(Tile* first){
@@ -37,6 +61,60 @@ struct Board{
 		miny=std::min(first->y,0);
 		maxy=std::max(first->y,0);
 	}
+	int2 mouseToXY(glm::vec2 mouse){
+		int width = getWidth(),
+		   height = getHeight();
+		float tileSize = 2.f/(2+std::max(width,height));
+		int x = (mouse.x+1)/tileSize,
+		    y = (mouse.y+1)/tileSize;
+		return int2(minx-1+x,miny-1+y);
+	}
+	glm::vec2 xyToCenter(int2 xy){
+		float tileSize = 2.f/(2+std::max(getWidth(),getHeight()));
+		glm::vec2 corner = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize);
+		glm::vec2 center = corner+tileSize*glm::vec2(xy.x-minx,xy.y-miny);
+		return center;
+	}
+	Tile* find(int x, int y, Tile* start,bool flag){
+		if(start == NULL || start == nullptr || start->flag == flag) return NULL;
+		else if(start->x == x && start->y == y) return start;
+		else{
+			start->flag = flag; //mark processed
+			Tile* found = find(x,y,start->up,flag);
+			if(found != NULL) return found;
+			found = find(x,y,start->down,flag);
+			if(found != NULL) return found;
+			found = find(x,y,start->left,flag);
+			return (found!=NULL)? found : find(x,y,start->right,flag);
+		}
+	}
+
+	void freeTiles(Tile* current, bool flag){
+		if(current == NULL || current == nullptr || current->flag == flag) return;
+		current->flag = flag;
+
+		freeTiles(current->up,flag);
+		freeTiles(current->down,flag);
+		freeTiles(current->left,flag);
+		freeTiles(current->right,flag);
+		
+		free(current);
+	}
+
+	Tile getRandTile(){
+		int tileCount = 0;
+		for(int i=0;i<20;i++) tileCount += tile_freqs[i];
+
+		if(tileCount == 0) return Tile(0,-42,-42);
+		else{
+			int randint = tileCount*(((float)rand())/RAND_MAX);
+			int idx = 0;
+			while(randint>=0) randint -= tile_freqs[idx++];
+			tile_freqs[--idx]--;
+			return Tile(idx,-1,-1);
+		}
+	}
+
 	void connectTile(bool flag,Tile* tile,Tile* curTile){
 		if(curTile == nullptr || curTile == NULL || curTile->flag==flag) return;
 		curTile->flag = flag; //set as processed
@@ -62,9 +140,16 @@ struct Board{
 		connectTile(flag,tile,curTile->up);
 		connectTile(flag,tile,curTile->down);
 	}
-	void addTile(Tile* tile){
-		int x = tile->x,
-		    y = tile->y;
+
+	void addTile(Tile* tile,int x=-1, int y=-1){
+		if(x==-1 || y==-1){
+			x = tile->x;
+			y = tile->y;
+		}else{
+			tile->x = x;
+			tile->y = y;
+		}
+		
 		if(x>maxx) maxx=x;
 		if(x<minx) minx=x;
 		if(y>maxy) maxy=y;
@@ -73,8 +158,10 @@ struct Board{
 		tile->flag = center->flag;
 		connectTile(!center->flag,tile,center);
 	}
+
 	int getWidth(){ return maxx-minx+1;}
 	int getHeight(){ return maxy-miny+1;}
+
 	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile){
 		if(curTile == nullptr || curTile == NULL || curTile->flag == flag) return;
 		curTile->flag = flag;
@@ -85,6 +172,29 @@ struct Board{
 		mapDraw(drawFn,flag,curTile->down);
 	}
 };
+Terrain Board::sides[20][4] = {{Terrain::Grass,Terrain::Grass,Terrain::Grass,Terrain::Grass},
+			       {Terrain::Road,Terrain::Grass,Terrain::Road,Terrain::Grass},
+			       {Terrain::Road,Terrain::Road,Terrain::Road,Terrain::Road},
+			       {Terrain::Grass,Terrain::Road,Terrain::Road,Terrain::Road},
+			       {Terrain::Grass,Terrain::Grass,Terrain::Road,Terrain::Road},
+			       {Terrain::End,Terrain::Road,Terrain::Grass,Terrain::Road},//5
+
+			       {Terrain::End,Terrain::Grass,Terrain::Road,Terrain::Road},
+			       {Terrain::End,Terrain::Road,Terrain::Road,Terrain::Grass},
+			       {Terrain::End,Terrain::Road,Terrain::Road,Terrain::Road},
+			       {Terrain::End,Terrain::Grass,Terrain::Grass,Terrain::Grass},
+			       {Terrain::End,Terrain::Grass,Terrain::Grass,Terrain::End},//10
+
+			       {Terrain::Grass,Terrain::End,Terrain::Grass,Terrain::End},
+			       {Terrain::Grass,Terrain::Grass,Terrain::Grass,Terrain::Grass},
+			       {Terrain::Grass,Terrain::Grass,Terrain::Road,Terrain::Grass},
+			       {Terrain::Castle,Terrain::Road,Terrain::Road,Terrain::Castle},
+			       {Terrain::Castle,Terrain::Grass,Terrain::Grass,Terrain::Castle},//15
+
+			       {Terrain::Castle,Terrain::Castle,Terrain::Grass,Terrain::Castle},
+			       {Terrain::Castle,Terrain::Castle,Terrain::Road,Terrain::Castle},
+			       {Terrain::Grass,Terrain::Castle,Terrain::Grass,Terrain::Castle},
+			       {Terrain::Castle,Terrain::Castle,Terrain::Castle,Terrain::Castle}};
 
 int main(int argc, char **argv) {
 	//Configuration:
@@ -289,20 +399,15 @@ int main(int argc, char **argv) {
 	//correct radius for aspect ratio:
 	camera.radius.x = camera.radius.y * (float(config.size.x) / float(config.size.y));
 
-
-	Tile center = Tile(1,0,0);
+	printf("Creating assets...\n");
+	Tile center = Tile(5,0,0);
 	Board board = Board(&center);
-	Tile up = Tile(2,0,1);
-	Tile down = Tile(3,0,-1);
-	Tile left = Tile(4,-1,0);
-	Tile right = Tile(5,1,0);
-	board.addTile(&up);
-	board.addTile(&down);
-	board.addTile(&left);
-	board.addTile(&right);
+	//TODO: seed randomness
+	Tile* activeTile = (Tile*) malloc(sizeof(Tile));
+	*activeTile = board.getRandTile();
 
 	//------------ game loop ------------
-
+	printf("starting game loop\n");
 	bool should_quit = false;
 	while (true) {
 		static SDL_Event evt;
@@ -312,6 +417,16 @@ int main(int argc, char **argv) {
 				mouse.x = (evt.motion.x + 0.5f) / float(config.size.x) * 2.0f - 1.0f;
 				mouse.y = (evt.motion.y + 0.5f) / float(config.size.y) *-2.0f + 1.0f;
 			} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
+				//attempting to place a tile
+				int2 xy = board.mouseToXY(mouse);
+				printf("(%d,%d)\n",xy.x,xy.y);
+				if(board.find(xy.x,xy.y,board.center,!board.center->flag) != NULL) continue;
+				board.addTile(activeTile,xy.x,xy.y);
+				activeTile = (Tile*) malloc(sizeof(Tile));
+				*activeTile = board.getRandTile();
+				if(activeTile->x == -42) printf("END OF GAME\n");
+			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
+				activeTile->rotation = (activeTile->rotation + 90) % 360;
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_ESCAPE) {
 				should_quit = true;
 			} else if (evt.type == SDL_QUIT) {
@@ -358,24 +473,20 @@ int main(int argc, char **argv) {
 			
 			int width = board.getWidth(),
 			   height = board.getHeight();
-			printf("board dimensions are %dx%d\n",width,height);
+			float tileSize = 2.f/(2+std::max(width,height));
 	
-			auto drawTile = [width,height,board,draw_sprite,load_sprite](Tile* tile){
+			auto drawTile = [tileSize,board,draw_sprite,load_sprite](Tile* tile){
 				int tN = tile->tileNum;
-				SpriteInfo textile = load_sprite(tN%5,tN/5); //5 columns in tex atlas
-				float tileSize = 2.f/std::max(width,height);
+				SpriteInfo textile = load_sprite(tN/5,tN%5); //5 columns in tex atlas
 				int x = tile->x - board.minx,
 				    y = tile->y - board.miny;
-				glm::vec2 center = glm::vec2(-1+0.5*tileSize,-1+0.5*tileSize)+tileSize*glm::vec2(x,y);
-				printf("drawing tile %dx%d at %.2fx%.2f with rad %.2f\n",tN%5,tN/5,center.x,center.y,tileSize);
-				draw_sprite(textile,center,0.5*tileSize,0.5*tileSize);
+				glm::vec2 center = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize)+tileSize*glm::vec2(x,y); //leave border in case wan to place tile on border
+				draw_sprite(textile,center,0.5*tileSize,0.5*tileSize,tile->rotation*3.14159265f/180);
 			};
 			board.mapDraw(drawTile,!board.center->flag,board.center);
-
-
-			mouse = glm::vec2(0,0);
-			//rect(mouse * camera.radius + camera.at, glm::vec2(4.0f), glm::u8vec4(0xff, 0xff, 0xff, 0x88));
-
+			//now draw currently held tile
+			SpriteInfo activeInfo = load_sprite(activeTile->tileNum/5,activeTile->tileNum%5);
+			draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * verts.size(), &verts[0], GL_STREAM_DRAW);
@@ -404,7 +515,8 @@ int main(int argc, char **argv) {
 
 
 	//------------  teardown ------------
-
+	board.center->flag = !board.center->flag; //first tile wasn't malloced
+	board.freeTiles(board.center,board.center->flag);
 	SDL_GL_DeleteContext(context);
 	context = 0;
 
