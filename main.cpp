@@ -9,6 +9,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <stdlib.h>
+#include <random>
 
 #include <functional> //cleanly pass a function into a function
 
@@ -16,8 +17,8 @@ static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 
 //TODO: display textual score
+//TODO: keep list of tiles to support non-ripple opps. cant short circuit yet cause must keep seen flags consistent
 //Bonus: tint castle on completion
-//make non-ripple opps
 //Bonus: highlight potential tile placement
 
 struct Player{
@@ -112,12 +113,17 @@ public:
 	}
 
 	Tile getRandTile(){
+		static auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		static auto random = std::bind(std::uniform_real_distribution<float>(0,1),std::mt19937(seed));
+
+
+
 		int tileCount = 0;
 		for(int i=0;i<20;i++) tileCount += tile_freqs[i];
 
 		if(tileCount == 0) return Tile(0,center->flag,0,0);
 		else{
-			int randint = tileCount*(((float)rand())/RAND_MAX);
+			int randint = tileCount*random();
 			int idx = 0;
 			while(randint>=0) randint -= tile_freqs[idx++];
 			tile_freqs[--idx]--;
@@ -176,7 +182,7 @@ public:
 		bool valid2 = connectTile(flag,tile,curTile->right);
 		bool valid3 = connectTile(flag,tile,curTile->up);
 		bool valid4 = connectTile(flag,tile,curTile->down);
-		return valid0 && valid1 && valid2 && valid3 && valid4; //TODO: keep list of tiles. cant short circuit yet cause must keep seen flags consistent
+		return valid0 && valid1 && valid2 && valid3 && valid4;
 	}
 
 	bool addTile(Tile* tile){ //place and ret true if valid, otherwise don't place and return false
@@ -523,7 +529,6 @@ int main(int argc, char **argv) {
 	printf("Creating assets...\n");
 	Tile center = Tile(5,false,0,0);
 	Board board = Board(&center);
-	//TODO: seed randomness
 	Tile* activeTile = (Tile*) malloc(sizeof(Tile));
 	*activeTile = board.getRandTile();
 
