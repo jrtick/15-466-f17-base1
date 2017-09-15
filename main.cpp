@@ -16,9 +16,9 @@
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 
-//TODO: display textual score
+//TODO: FIX BUGGY SCORE
 //TODO: keep list of tiles to support non-ripple opps. cant short circuit yet cause must keep seen flags consistent
-//Bonus: tint castle on completion
+//Bonus: tint castles on completion
 //Bonus: highlight potential tile placement
 
 struct Player{
@@ -498,20 +498,47 @@ int main(int argc, char **argv) {
 		glm::vec2 min_uv = glm::vec2(0.0f);
 		glm::vec2 max_uv = glm::vec2(1.0f);
 		glm::vec2 rad = glm::vec2(0.5f);
+		SpriteInfo(){}
+		SpriteInfo(glm::vec2 min_uv, glm::vec2 max_uv, glm::vec2 rad){
+			this->min_uv = min_uv;
+			this->max_uv = max_uv;
+			this->rad = rad;
+		}
 	};
 
 
-	auto load_sprite = [](int idx) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
-		int row = idx / 5,
-		    col = idx % 5;
-		SpriteInfo info; //663 x 553 image
-		#define WIDTH 663.f
-		#define HEIGHT 553.f
-		info.min_uv = glm::vec2(10/WIDTH+col*128/WIDTH,1-(10/HEIGHT+(row+1)*128/HEIGHT));
-		info.max_uv = glm::vec2(info.min_uv.x+128/WIDTH,info.min_uv.y+128/HEIGHT);
-		info.rad = glm::vec2(128/WIDTH,128/HEIGHT);
-		//printf("(%.2f,%.2f)<->(%.2f,%.2f) by (%.2f,%.2f)\n",info.min_uv.x,info.min_uv.y,info.max_uv.x,info.max_uv.y,info.rad.x,info.rad.y);
-		return info;
+	auto load_sprite = [](char idx, bool isTile=true) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
+		glm::vec2 imSize = glm::vec2(640,750);
+		if(isTile){ //tile from Carcassonne
+			int row = idx / 5,
+			    col = idx % 5;
+			SpriteInfo info; //663 x 553 image
+			const float tileWidth = 128/float(imSize.x);
+			const float tileHeight = 128/float(imSize.y);
+			info.min_uv = glm::vec2(col*tileWidth,1-(row+1)*tileHeight);
+			info.max_uv = info.min_uv + glm::vec2(tileWidth,tileHeight);
+			info.rad = glm::vec2(tileWidth,tileHeight);
+			return info;
+		}else{ // is text!! Support a-z,A-Z,0-9
+			glm::vec2 offset = glm::vec2(0,1-558/float(imSize.y));
+			glm::vec2 texSize = glm::vec2(40/float(imSize.x),50/float(imSize.y));
+			if(idx >= 'A' && idx <= 'Z'){
+				idx -= 'A';
+				glm::vec2 min_uv = offset +
+				       glm::vec2((idx%13)*texSize.x,-(idx/13)*texSize.y);
+				return SpriteInfo(min_uv,min_uv+texSize,texSize);
+			}else if(idx >= 'a' && idx <= 'z'){
+				idx -= 'a';
+				glm::vec2 min_uv = offset +
+				       glm::vec2((idx%13)*texSize.x,-(idx/13+2)*texSize.y);
+				return SpriteInfo(min_uv,min_uv+texSize,texSize);
+			}else{ //ONLY numbers
+				idx -= '0';
+				glm::vec2 min_uv = offset +
+				       glm::vec2(idx*texSize.x,-4*texSize.y);
+				return SpriteInfo(min_uv,min_uv+texSize,texSize);
+			}
+		}
 	};
 
 
@@ -531,6 +558,7 @@ int main(int argc, char **argv) {
 	Board board = Board(&center);
 	Tile* activeTile = (Tile*) malloc(sizeof(Tile));
 	*activeTile = board.getRandTile();
+	std::string msg = "Player 1 turn";
 
 	//------------ game loop ------------
 	printf("starting game loop\n");
@@ -574,6 +602,8 @@ int main(int argc, char **argv) {
 							should_quit = true;
 						}
 						playerIdx= (playerIdx + 1) % numPlayers; //turn switches
+						msg = std::string("player ") + std::to_string(playerIdx) + std::string(" turn with ") +
+						     std::to_string(players[playerIdx].score) + std::string(" points");
 						for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
 					}else printf("INVALID PLACEMENT\n");
 				}
@@ -640,11 +670,23 @@ int main(int argc, char **argv) {
 				glm::vec2 center = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize)+tileSize*glm::vec2(x,y); //leave border in case wan to place tile on border
 				draw_sprite(textile,center,0.5*tileSize,0.5*tileSize,tile->rotation*3.14159265f/180);
 			};
+			auto drawText = [draw_sprite,load_sprite](std::string phrase,glm::vec2 start,float fontWeight=0.02){ //start is center of first character
+				glm::vec2 curLoc = start;
+				for(unsigned int i=0;i<phrase.length();i++){
+					if(phrase[i] != ' '){
+						SpriteInfo character = load_sprite(phrase[i],false);
+						draw_sprite(character,curLoc,fontWeight);
+					}
+					curLoc += glm::vec2(fontWeight,0);
+				}
+			};
 			//printf("---------------------------\n");
 			board.mapDraw(drawTile,!board.center->flag,board.center);
 			//now draw currently held tile
 			SpriteInfo activeInfo = load_sprite(activeTile->tileNum);
 			draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
+			drawText(std::string("Carcassonne Lite"), glm::vec2(-0.4,0.95),0.05);
+			drawText(msg,glm::vec2(-0.04f*msg.length()/2,0.88),0.04);
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * verts.size(), &verts[0], GL_STREAM_DRAW);

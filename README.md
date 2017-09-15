@@ -1,18 +1,17 @@
-NOTE: please fill in the first section with information about your game.
+# *Carcassonne Lite*
 
-# *Game Title*
-
-*Game Title* is *Your Name*'s implementation of [*Design Document*](http://graphics.cs.cmu.edu/courses/15-466-f17/game1-designs/put-real-link-here) for game1 in 15-466-f17.
+*Carcassonne Lite* is *Jordan Tick*'s implementation of [*Carcassonne Lite*](http://graphics.cs.cmu.edu/courses/15-466-f17/game1-designs/jrtick) for game1 in 15-466-f17.
 
 *Include a Screenshot Here*
 
 ## Build Notes
-
-*Include any special notes or steps required to build your game here. If there are no special notes, delete this section.*
+Gameplay defaults to being between two players. If you run ./main X, you will play with X players.
 
 ## Asset Pipeline
 
-*Briefly describe the asset pipeline for this game. What sorts of source files are used? How are they processed? How are they loaded?*
+I had drew the Carcassonne tiles based off the tileset provided in the design document. 
+I then downloaded a free font known as Maxwell, which I took a screenshot of from (https://www.behance.net/gallery/33291771/FREE-Maxwell-Font-Family).
+I concatenated these two images into one image, which I then use offsets from in my code to certain tiles/characters.
 
 ## Architecture
 
