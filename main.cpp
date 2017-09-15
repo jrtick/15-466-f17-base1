@@ -15,30 +15,40 @@
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 
-//TODO: fix placing bug left of tile?
-//TODO: enforce valid tile placement (align & adjace)
-//TODO: add players and scoring
+//TODO: enforce valid tile alignment
+//TODO: add scoring
 //Bonus: tint castle on completion
 //Bonus: display textual score
 //Bonus: highlight potential tile placement
 
-enum class Terrain {Grass,Castle,End,Road}; //End is castle end
+struct Player{
+	int score = 0;
+};
 
-class Board;
+enum class Terrain {Grass,Castle,End,Road}; //End is castle end
+#define TERR_STR(x) (x==Terrain::Grass? "Grass" : (x==Terrain::Road? "Road" : (x==Terrain::End? "End" : "Castle")))
+bool canConnect(Terrain t1, Terrain t2){
+	switch(t1){
+	case Terrain::Grass:
+		return t2 == Terrain::Grass;
+	case Terrain::Road:
+		return t2 == Terrain::Road;
+	default: //castle or end of castle
+		return (t2 == Terrain::Castle) || (t2 == Terrain::End);
+	}
+}
 struct Tile{
 	int tileNum;
 	int x,y; //position on board
 	bool flag;
-	Terrain sides[4];
-	int rotation = 0;
+	bool hasChurch;
+	Terrain sides[4]; // up right down left
+	int rotation;
 	Tile *left,*right,*up,*down;
-	Tile(int tileNum, bool flag, int x=-1, int y=-1){
-		this->x=x;
-		this->y=y;
-		this->tileNum = tileNum;
-		for(int i=0;i<4;i++) sides[i] = Terrain::Castle;//Board::sides[tileNum][i];
-		left=right=up=down=nullptr;
-		flag = flag;
+	Tile(int tileNum, bool flag, int x=-1, int y=-1);	
+	Terrain getTerrain(int dir){
+		Terrain out = sides[(dir+(rotation%360)/90+4)%4];
+		return out;
 	}
 };
 struct int2{
@@ -112,47 +122,105 @@ public:
 			int idx = 0;
 			while(randint>=0) randint -= tile_freqs[idx++];
 			tile_freqs[--idx]--;
-			return Tile(idx,center->flag,-1,-1);
+			Tile randtile = Tile(idx,center->flag,-1,-1);
+			printf("Received tile %d (%s,%s,%s,%s)\n",idx,
+				TERR_STR(randtile.getTerrain(0)),
+				TERR_STR(randtile.getTerrain(1)),
+				TERR_STR(randtile.getTerrain(2)),
+				TERR_STR(randtile.getTerrain(3)));
+			return randtile;
 		}
 	}
 
-	void connectTile(bool flag,Tile* tile,Tile* curTile){
-		if(curTile == nullptr || curTile == NULL || curTile->flag==flag) return;
+	bool connectTile(bool flag,Tile* tile,Tile* curTile){
+		if(curTile == nullptr || curTile == NULL || curTile->flag==flag) return true;
 		curTile->flag = flag; //set as processed
 
 		//check if adjacent
-		if(curTile->x==tile->x && curTile->y==tile->y+1){
+		bool valid0 = true;
+		if(curTile->x==tile->x && curTile->y==tile->y+1){ 
+			Terrain active = tile->getTerrain(0);
+			Terrain neighbor = curTile->getTerrain(2);
+			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
+
+			if(!canConnect(active,neighbor)) valid0 = false;
 			tile->up = curTile;
 			curTile->down = tile;
-		}else if(curTile->x==tile->x && curTile->y==tile->y-1){
+		}else if(curTile->x==tile->x && curTile->y==tile->y-1){ 
+			Terrain active = tile->getTerrain(2);
+			Terrain neighbor = curTile->getTerrain(0);	
+			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
+
+			if(!canConnect(active,neighbor)) valid0 = false;
 			tile->down = curTile;
 			curTile->up = tile;
-		}else if(curTile->x==tile->x-1 && curTile->y==tile->y){
+		}else if(curTile->x==tile->x-1 && curTile->y==tile->y){ 
+			Terrain active = tile->getTerrain(3);
+			Terrain neighbor = curTile->getTerrain(1);
+			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
+	
+			if(!canConnect(active,neighbor)) valid0 = false;
 			tile->left = curTile;
 			curTile->right = tile;
-		}else if(curTile->x==tile->x+1 && curTile->y==tile->y){
+		}else if(curTile->x==tile->x+1 && curTile->y==tile->y){ 
+			Terrain active = tile->getTerrain(1);
+			Terrain neighbor = curTile->getTerrain(3);
+			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
+	
+			if(!canConnect(active,neighbor)) valid0 = false;
 			tile->right = curTile;
 			curTile->left = tile;
 		}
 
 		//recurse
-		connectTile(flag,tile,curTile->left);
-		connectTile(flag,tile,curTile->right);
-		connectTile(flag,tile,curTile->up);
-		connectTile(flag,tile,curTile->down);
+		bool valid1 = connectTile(flag,tile,curTile->left);
+		bool valid2 = connectTile(flag,tile,curTile->right);
+		bool valid3 = connectTile(flag,tile,curTile->up);
+		bool valid4 = connectTile(flag,tile,curTile->down);
+		return valid0 && valid1 && valid2 && valid3 && valid4; //TODO: keep list of tiles. cant short circuit yet cause must keep seen flags consistent
 	}
 
-	void addTile(Tile* tile){
-		int x = tile->x;
-		int y = tile->y;
-		
-		if(x>maxx) maxx=x;
-		if(x<minx) minx=x;
-		if(y>maxy) maxy=y;
-		if(y<miny) miny=y;
-
+	bool addTile(Tile* tile){ //place and ret true if valid, otherwise don't place and return false
 		tile->flag = !center->flag; //all flags will be switched by next op
-		connectTile(!center->flag,tile,center);
+		bool valid = connectTile(!center->flag,tile,center);
+
+		bool wasAdjacent = (tile->left != nullptr) || (tile->right != nullptr) ||
+				(tile->up != nullptr) || (tile->down != nullptr);
+
+		if(!valid || !wasAdjacent){
+			//not valid so undo any changes
+			if(tile->up != nullptr){
+				tile->up->down = nullptr;
+				tile->up = nullptr;
+			}
+			if(tile->down != nullptr){
+				tile->down->up = nullptr;
+				tile->down = nullptr;
+			}
+			if(tile->left != nullptr){
+				tile->left->right = nullptr;
+				tile->left = nullptr;
+			}
+			if(tile->right != nullptr){
+				tile->right->left = nullptr;
+				tile->right = nullptr;
+			}
+			return false;
+		}else{
+			//valid so update board dimensions
+			int x = tile->x;
+			int y = tile->y;
+		
+			if(x>maxx) maxx=x;
+			if(x<minx) minx=x;
+			if(y>maxy) maxy=y;
+			if(y<miny) miny=y;
+
+			return true;
+		}
+	}
+	bool completedCastle(Tile* tile){
+		return true;
 	}
 
 	int getWidth(){ return maxx-minx+1;}
@@ -192,8 +260,24 @@ Terrain Board::sides[20][4] = {{Terrain::Grass,Terrain::Grass,Terrain::Grass,Ter
 			       {Terrain::Castle,Terrain::Castle,Terrain::Road,Terrain::Castle},
 			       {Terrain::Grass,Terrain::Castle,Terrain::Grass,Terrain::Castle},
 			       {Terrain::Castle,Terrain::Castle,Terrain::Castle,Terrain::Castle}};
-
+Tile::Tile(int tileNum, bool flag, int x, int y){
+	this->x=x;
+	this->y=y;
+	this->tileNum = tileNum;
+	for(int i=0;i<4;i++) sides[i] = Board::sides[tileNum][i];
+	left=right=up=down=nullptr;
+	flag = flag;
+	rotation = 0;
+	hasChurch = (tileNum == 12 || tileNum == 13);
+}
 int main(int argc, char **argv) {
+	int numPlayers = 2;
+	if(argc == 2) numPlayers = std::stoi(std::string(argv[1]));
+	printf("Using %d players\n",numPlayers);
+	Player* players = (Player*) malloc(sizeof(Player)*numPlayers);
+	for(int i=0;i<numPlayers;i++) players[i] = Player();
+	int playerIdx = 0;
+
 	/*auto printTerrain = [&](int tileIdx,int sideIdx){
 		switch(Board::sides[tileIdx][sideIdx]){
 		case Terrain::Grass:
@@ -389,12 +473,14 @@ int main(int argc, char **argv) {
 	};
 
 
-	auto load_sprite = [](int row, int col) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
+	auto load_sprite = [](int idx) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
+		int row = idx / 5,
+		    col = idx % 5;
 		SpriteInfo info; //663 x 553 image
 		#define WIDTH 663.f
 		#define HEIGHT 553.f
-		info.min_uv = glm::vec2(10/WIDTH+col*128/WIDTH,1-(10/HEIGHT+row*128/HEIGHT));
-		info.max_uv = glm::vec2(info.min_uv.x+128/WIDTH,info.min_uv.y-128/HEIGHT);
+		info.min_uv = glm::vec2(10/WIDTH+col*128/WIDTH,1-(10/HEIGHT+(row+1)*128/HEIGHT));
+		info.max_uv = glm::vec2(info.min_uv.x+128/WIDTH,info.min_uv.y+128/HEIGHT);
 		info.rad = glm::vec2(128/WIDTH,128/HEIGHT);
 		//printf("(%.2f,%.2f)<->(%.2f,%.2f) by (%.2f,%.2f)\n",info.min_uv.x,info.min_uv.y,info.max_uv.x,info.max_uv.y,info.rad.x,info.rad.y);
 		return info;
@@ -439,16 +525,26 @@ int main(int argc, char **argv) {
 					printf("adding\n");
 					activeTile->x = xy.x;
 					activeTile->y = xy.y;
-					board.addTile(activeTile);
-					activeTile = (Tile*) malloc(sizeof(Tile));
-					*activeTile = board.getRandTile();
-					if(activeTile->x == -42){
-						printf("END OF GAME\n");
-						should_quit = true;
-					}
+					if(board.addTile(activeTile)){
+						if(board.completedCastle(activeTile)){
+							players[playerIdx].score++;
+						}
+						activeTile = (Tile*) malloc(sizeof(Tile));
+						*activeTile = board.getRandTile();
+						if(activeTile->x == -42){
+							printf("END OF GAME\n");
+							should_quit = true;
+						}
+					}else printf("INVALID PLACEMENT\n");
 				}
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
 				activeTile->rotation = (activeTile->rotation + 90) % 360;
+			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_p){
+				printf("currently: %s,%s,%s,%s\n",
+					TERR_STR(activeTile->getTerrain(0)),
+					TERR_STR(activeTile->getTerrain(1)),
+					TERR_STR(activeTile->getTerrain(2)),
+					TERR_STR(activeTile->getTerrain(3)));
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_ESCAPE) {
 				should_quit = true;
 			} else if (evt.type == SDL_QUIT) {
@@ -498,8 +594,7 @@ int main(int argc, char **argv) {
 	
 			auto drawTile = [tileSize,board,draw_sprite,load_sprite](Tile* tile){
 				//printf("drawing %d at %dx%d\n",tile->tileNum,tile->x,tile->y);
-				int tN = tile->tileNum;
-				SpriteInfo textile = load_sprite(tN/5,tN%5); //5 columns in tex atlas
+				SpriteInfo textile = load_sprite(tile->tileNum); //5 columns in tex atlas
 				int x = tile->x - board.minx,
 				    y = tile->y - board.miny;
 				glm::vec2 center = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize)+tileSize*glm::vec2(x,y); //leave border in case wan to place tile on border
@@ -508,7 +603,7 @@ int main(int argc, char **argv) {
 			//printf("---------------------------\n");
 			board.mapDraw(drawTile,!board.center->flag,board.center);
 			//now draw currently held tile
-			SpriteInfo activeInfo = load_sprite(activeTile->tileNum/5,activeTile->tileNum%5);
+			SpriteInfo activeInfo = load_sprite(activeTile->tileNum);
 			draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
@@ -534,12 +629,14 @@ int main(int argc, char **argv) {
 
 
 		SDL_GL_SwapWindow(window);
+		playerIdx = (playerIdx + 1) % numPlayers;
 	}
 
 
 	//------------  teardown ------------
 	board.center->flag = !board.center->flag; //first tile wasn't malloced
 	board.freeTiles(board.center,board.center->flag);
+	free(players);
 	SDL_GL_DeleteContext(context);
 	context = 0;
 
