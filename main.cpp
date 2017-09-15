@@ -15,10 +15,9 @@
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
 
-//TODO: enforce valid tile alignment
-//TODO: add scoring
+//TODO: display textual score
 //Bonus: tint castle on completion
-//Bonus: display textual score
+//make non-ripple opps
 //Bonus: highlight potential tile placement
 
 struct Player{
@@ -44,7 +43,7 @@ struct Tile{
 	bool hasChurch;
 	Terrain sides[4]; // up right down left
 	int rotation;
-	Tile *left,*right,*up,*down;
+	Tile *up,*right,*down,*left;
 	Tile(int tileNum, bool flag, int x=-1, int y=-1);	
 	Terrain getTerrain(int dir){
 		Terrain out = sides[(dir+(rotation%360)/90+4)%4];
@@ -116,7 +115,7 @@ public:
 		int tileCount = 0;
 		for(int i=0;i<20;i++) tileCount += tile_freqs[i];
 
-		if(tileCount == 0) return Tile(0,center->flag,-42,-42);
+		if(tileCount == 0) return Tile(0,center->flag,0,0);
 		else{
 			int randint = tileCount*(((float)rand())/RAND_MAX);
 			int idx = 0;
@@ -219,8 +218,31 @@ public:
 			return true;
 		}
 	}
-	bool completedCastle(Tile* tile){
-		return true;
+	
+	int completedCastle(Tile* tile,bool flag, int dir,int score = 0, bool firstCall=true,bool flagging=false){
+		if(tile == NULL || tile == nullptr) return -1; //have a hole in your castle
+		else if(tile->flag == flag) return score; //already looked here, assume okay
+		else{
+			tile->flag = flag; //process this tile as new
+			if(score>=0) score++;
+		}
+
+		if(!flagging){
+			if(tile->getTerrain(dir) == Terrain::End){ //END closes castle
+				if(firstCall) score = completedCastle(*(&(tile->up)+dir),flag,(dir+2)%4,score,false);
+			}else{ //flood fill out to find walls
+				for(int side=0;side<4;side++){
+					if(tile->getTerrain(side) == Terrain::Castle){
+						score = completedCastle(*(&(tile->up)+side),flag,(side+2)%4,score,false);
+					}
+				}
+			}
+		}
+
+		for(int side=0;side<4;side++) //to maintain valid data structure, must flip ALL flags on board
+			completedCastle(*(&(tile->up)+side),flag,-1,-1,false,true); //balance flags
+
+		return score;
 	}
 
 	int getWidth(){ return maxx-minx+1;}
@@ -526,15 +548,28 @@ int main(int argc, char **argv) {
 					activeTile->x = xy.x;
 					activeTile->y = xy.y;
 					if(board.addTile(activeTile)){
-						if(board.completedCastle(activeTile)){
-							players[playerIdx].score++;
+						if(activeTile->hasChurch) players[playerIdx].score++;
+						else{ //check if completed a castle
+							for(int dir=0;dir<4;dir++){
+								Terrain terr = activeTile->getTerrain(dir);
+								if(terr == Terrain::Castle || terr == Terrain::End){
+									int score = board.completedCastle(activeTile,!activeTile->flag,dir);
+									if(score != -1){
+										printf("Completed from %d with a score of %d!\n",dir,score);
+										players[playerIdx].score+=score;
+									}
+									if(terr == Terrain::Castle) break; //castle sides are fully conn so check only one
+								}
+							}
 						}
 						activeTile = (Tile*) malloc(sizeof(Tile));
 						*activeTile = board.getRandTile();
-						if(activeTile->x == -42){
+						if(activeTile->tileNum == 0){
 							printf("END OF GAME\n");
 							should_quit = true;
 						}
+						playerIdx= (playerIdx + 1) % numPlayers; //turn switches
+						for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
 					}else printf("INVALID PLACEMENT\n");
 				}
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
@@ -629,7 +664,6 @@ int main(int argc, char **argv) {
 
 
 		SDL_GL_SwapWindow(window);
-		playerIdx = (playerIdx + 1) % numPlayers;
 	}
 
 
