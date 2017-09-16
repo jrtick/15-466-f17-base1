@@ -2,26 +2,37 @@
 
 *Carcassonne Lite* is *Jordan Tick*'s implementation of [*Carcassonne Lite*](http://graphics.cs.cmu.edu/courses/15-466-f17/game1-designs/jrtick) for game1 in 15-466-f17.
 
-[screenshots/screenshot.png]
+![screenshots/screenshot.png]
 
 ## Build Notes
-Gameplay defaults to being between two players. If you run ./main X, you will play with X players.
+Gameplay defaults to being between two players. If you run "./main X" instead of just "./main", you will play with X players.
 
 ## Asset Pipeline
 
-I had drew the Carcassonne tiles based off the tileset provided in the design document. 
+I drew the Carcassonne tiles based off the tileset provided in the design document. 
 I then downloaded a free font known as Maxwell, which I took a screenshot of from (https://www.behance.net/gallery/33291771/FREE-Maxwell-Font-Family).
-I concatenated these two images into one image, which I then use offsets from in my code to certain tiles/characters.
+I concatenated these two images into one image, from which I defined offsets into so that I could reference certain tiles/characters in my code.
 
 ## Architecture
+I like recursive data structures! I modelled the board game as a graph, where every tile knows about its left/right/up/down neighbor. These pointers are NULL if no such neighbor exists.
+The benefit of this data structure is that I wouldn't have to keep expanding some 2D grid representation of the board every time a new tile was added. Also, operations to find out if a castle was completed could nicely be written recursively as a sort of 'flood fill operation'.
 
-*Provide a brief introduction to how you implemented the design. Talk about the basic structure of your code.*
+The difficulty, however, was keeping a 'processed' flag on each tile and making sure these flags didn't get corrupted. If a function wanted to use the process flag, it had to eventually flip ALL process flags on the board to maintin validity.
+
+For other architecture notes:
+ - In my texture atlas, I stored everything as a 2D grid so things could be easily indexed.
+ - turn cycles to next player when a tile is placed, meaning it happens when the user clicks a valid spot on the board causing the current tile to be placed
+ - Interaction with the board stops being possible once game over occurs (all 71 tiles placed)
 
 ## Reflection
 
-*Reflect on the assignment. What was difficult? What worked well? If you were doing it again, what would you change?*
+The texture atlas of the project worked very well! There were no hiccups once I understood texture coordinates went from (0,0) in the bottom-left and (1,1) in the top-right.
 
-*Reflect on the design document. What was clear and what was ambiguous? How did you resolve the ambiguities?*
+The hardest part of this project was making the recursive board data structure fully functional. But it was also the most fun! I feel like the solutions are much more elegant.
+
+If I had more time on this project, I would've picked a more complete font and created a more polished GUI, potentially highlighting on the board where the current tile could potentially be placed. I like my data structures the way they currently are, though, so I wouldn't want to change much of anything already implemented.
+
+I actually wrote this design document, so I'd say it was pretty clear to me!
 
 
 # About Base1

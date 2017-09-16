@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
 						activeTile->x = xy.x;
 						activeTile->y = xy.y;
 						if(board.addTile(activeTile)){
-							if(activeTile->hasChurch) players[playerIdx].score++;
+							if(activeTile->hasChurch) players[playerIdx].score+=2;
 							else{ //check if completed a castle
 								for(int dir=0;dir<4;dir++){
 									Terrain terr = activeTile->getTerrain(dir);
