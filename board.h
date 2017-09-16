@@ -54,13 +54,13 @@ public:
 	}
 
 	int2 mouseToXY(glm::vec2 mouse); //tile coords based on gl screen pt
-	Tile* find(int x, int y); //finds 
-	void freeTiles(Tile* current, bool flag);
-	Tile* getRandTile();
+	Tile* find(int x, int y); //finds board loc (x,y) if it exists
+	void freeTiles(Tile* current, bool flag); //release data structure
+	Tile* getRandTile(); //returns a random tile out of the remaining tile_freqs
 	bool addTile(Tile* tile); //place and ret true if valid, otherwise don't place and return false
-	int completedCastle(Tile* tile,bool flag, int dir,int score = 0, bool firstCall=true);
-	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile);
-	void setFlag(bool flag){
+	int completedCastle(Tile* tile,bool flag, int dir,int score = 0, bool firstCall=true); //check if castle completed & return score
+	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile); //draw ALL tiles stemming from curTile
+	void setFlag(bool flag){ //reset processed flags
 		for(Tile* tile : tiles) tile->flag = flag;
 	}
 	int getWidth(){ return maxx-minx+1;}

@@ -213,11 +213,11 @@ int main(int argc, char **argv) {
 
 
 	auto load_sprite = [](char idx, bool isTile=true) -> SpriteInfo { //texcoords (0,0) bl to (1,1) tr
-		glm::vec2 imSize = glm::vec2(640,750);
+		glm::vec2 imSize = glm::vec2(640,750); //image size
 		if(isTile){ //tile from Carcassonne
 			int row = idx / 5,
-			    col = idx % 5;
-			SpriteInfo info; //663 x 553 image
+			    col = idx % 5; //tiles are setup in a grid with 5 columns
+			SpriteInfo info; //each tile should be 128x128 pixels
 			const float tileWidth = 128/float(imSize.x);
 			const float tileHeight = 128/float(imSize.y);
 			info.min_uv = glm::vec2(col*tileWidth,1-(row+1)*tileHeight);
@@ -225,19 +225,19 @@ int main(int argc, char **argv) {
 			info.rad = glm::vec2(tileWidth,tileHeight);
 			return info;
 		}else{ // is text!! Support a-z,A-Z,0-9
-			glm::vec2 offset = glm::vec2(0,1-558/float(imSize.y));
-			glm::vec2 texSize = glm::vec2(40/float(imSize.x),50/float(imSize.y));
-			if(idx >= 'A' && idx <= 'Z'){
+			glm::vec2 offset = glm::vec2(0,1-558/float(imSize.y)); //font starts 558 pixels from top of image
+			glm::vec2 texSize = glm::vec2(40/float(imSize.x),50/float(imSize.y)); //each char is a 40x50 block of pixels
+			if(idx >= 'A' && idx <= 'Z'){ //row 1-2 of font
 				idx -= 'A';
 				glm::vec2 min_uv = offset +
 				       glm::vec2((idx%13)*texSize.x,-(idx/13)*texSize.y);
 				return SpriteInfo(min_uv,min_uv+texSize,texSize);
-			}else if(idx >= 'a' && idx <= 'z'){
+			}else if(idx >= 'a' && idx <= 'z'){ //row 3-4 of font
 				idx -= 'a';
 				glm::vec2 min_uv = offset +
 				       glm::vec2((idx%13)*texSize.x,-(idx/13+2)*texSize.y);
 				return SpriteInfo(min_uv,min_uv+texSize,texSize);
-			}else{ //ONLY numbers
+			}else{ //ONLY numbers. Row 5 of font
 				idx -= '0';
 				glm::vec2 min_uv = offset +
 				       glm::vec2(idx*texSize.x,-4*texSize.y);
@@ -281,7 +281,7 @@ int main(int argc, char **argv) {
 				}else{//attempting to place a tile
 					int2 xy = board.mouseToXY(mouse);
 					if(board.find(xy.x,xy.y) != nullptr){
-						printf("Tile already found\n");
+						printf("Tile already exists\n");
 					}else{
 						printf("adding\n");
 						activeTile->x = xy.x;
@@ -303,7 +303,7 @@ int main(int argc, char **argv) {
 								}
 							}
 							activeTile = board.getRandTile();
-							if(activeTile == nullptr){
+							if(activeTile == nullptr){ //ran out of tiles
 								gameover = true;
 								printf("END OF GAME\n");
 								int curmax = players[0].score,
@@ -318,8 +318,8 @@ int main(int argc, char **argv) {
 								}
 								msg = std::string("Game over Player ")+std::to_string(curidx)+
 									std::string(" wins with ")+std::to_string(curmax)+std::string(" points");
-							}else{
-								playerIdx= (playerIdx + 1) % numPlayers; //turn switches
+							}else{ // next turn
+								playerIdx= (playerIdx + 1) % numPlayers; //next player
 								msg = std::string("player ") + std::to_string(playerIdx) + std::string(" turn with ") +
 							     	std::to_string(players[playerIdx].score) + std::string(" points");
 								if(numPlayers == 2) msg += std::string(" while player ")+std::to_string(playerIdx^1)
@@ -327,8 +327,8 @@ int main(int argc, char **argv) {
 								for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
 							}
 						}else{
-							printf("INVALID PLACEMENT\n");
-							activeTile->x = activeTile->y = 1<<30;
+							printf("INVALID TILE PLACEMENT\n");
+							activeTile->x = activeTile->y = 1<<30; //tile NOT on board
 						}
 					}
 				}
@@ -345,12 +345,7 @@ int main(int argc, char **argv) {
 
 		auto current_time = std::chrono::high_resolution_clock::now();
 		static auto previous_time = current_time;
-		float elapsed = std::chrono::duration< float >(current_time - previous_time).count();
 		previous_time = current_time;
-
-		{ //update game state:
-			(void)elapsed;
-		}
 
 		//draw output:
 		glClearColor(0.5, 0.5, 0.5, 0.0);
@@ -400,14 +395,16 @@ int main(int argc, char **argv) {
 					curLoc += glm::vec2(fontWeight+CHAR_PAD,0);
 				}
 			};
-			board.mapDraw(drawTile,!board.center->flag,board.center);
-			
+			board.mapDraw(drawTile,!board.center->flag,board.center);	
 			if(activeTile != nullptr){//now draw currently held tile
 				SpriteInfo activeInfo = load_sprite(activeTile->tileNum);
 				draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
 			}
+
+			//draw GUI AKA game title and player number
 			drawText(config.title, glm::vec2(-(2*TEXT_SIZE+CHAR_PAD)*config.title.length()/2,0.95),TEXT_SIZE*2);
 			drawText(msg,glm::vec2(-(TEXT_SIZE+CHAR_PAD)*msg.length()/2,0.88));
+
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * verts.size(), &verts[0], GL_STREAM_DRAW);
