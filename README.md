@@ -2,7 +2,8 @@
 
 *Carcassonne Lite* is *Jordan Tick*'s implementation of [*Carcassonne Lite*](http://graphics.cs.cmu.edu/courses/15-466-f17/game1-designs/jrtick) for game1 in 15-466-f17.
 
-![screenshots/screenshot.png]
+
+![alt text](https://raw.githubusercontent.com/jrtick/15-466-f17-base1/master/screenshots/screenshot.png)
 
 ## Build Notes
 Gameplay defaults to being between two players. If you run "./main X" instead of just "./main", you will play with X players.
