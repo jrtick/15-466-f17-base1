@@ -52,6 +52,7 @@ if $(OS) = NT {
 #---- build ----
 
 NAMES =
+	board
 	main
 	load_save_png
 	;

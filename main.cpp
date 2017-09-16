@@ -9,295 +9,16 @@
 #include <iostream>
 #include <stdexcept>
 #include <stdlib.h>
-#include <random>
 
-#include <functional> //cleanly pass a function into a function
+#include "board.h" //for the best
 
 static GLuint compile_shader(GLenum type, std::string const &source);
 static GLuint link_program(GLuint vertex_shader, GLuint fragment_shader);
-
-//TODO: FIX BUGGY SCORE
-//TODO: keep list of tiles to support non-ripple opps. cant short circuit yet cause must keep seen flags consistent
-//Bonus: tint castles on completion
-//Bonus: highlight potential tile placement
 
 struct Player{
 	int score = 0;
 };
 
-enum class Terrain {Grass,Castle,End,Road}; //End is castle end
-#define TERR_STR(x) (x==Terrain::Grass? "Grass" : (x==Terrain::Road? "Road" : (x==Terrain::End? "End" : "Castle")))
-bool canConnect(Terrain t1, Terrain t2){
-	switch(t1){
-	case Terrain::Grass:
-		return t2 == Terrain::Grass;
-	case Terrain::Road:
-		return t2 == Terrain::Road;
-	default: //castle or end of castle
-		return (t2 == Terrain::Castle) || (t2 == Terrain::End);
-	}
-}
-struct Tile{
-	int tileNum;
-	int x,y; //position on board
-	bool flag;
-	bool hasChurch;
-	Terrain sides[4]; // up right down left
-	int rotation;
-	Tile *up,*right,*down,*left;
-	Tile(int tileNum, bool flag, int x=-1, int y=-1);	
-	Terrain getTerrain(int dir){
-		Terrain out = sides[(dir+(rotation%360)/90+4)%4];
-		return out;
-	}
-};
-struct int2{
-	int x,y;
-	int2(){ x=y=0;}
-	int2(int x,int y){
-		this->x=x;
-		this->y=y;
-	}
-};
-
-class Board{
-public:
-	int tile_freqs[20] = {0,8,1,4,9,3,3,3,3,5,2,3,4,2,4,5,4,3,3,1};
-	static Terrain sides[20][4];
-	Tile* center;
-	int minx,miny,maxx,maxy;
-	Board(Tile* first){
-		center = first;
-		minx=std::min(first->x,0);
-		maxx=std::max(first->x,0);
-		miny=std::min(first->y,0);
-		maxy=std::max(first->y,0);
-	}
-	int2 mouseToXY(glm::vec2 mouse){
-		int width = getWidth(),
-		   height = getHeight();
-		float tileSize = 2.f/(2+std::max(width,height));
-		int x = (mouse.x+1)/tileSize,
-		    y = (mouse.y+1)/tileSize;
-		return int2(minx-1+x,miny-1+y);
-	}
-	glm::vec2 xyToCenter(int2 xy){
-		float tileSize = 2.f/(2+std::max(getWidth(),getHeight()));
-		glm::vec2 corner = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize);
-		glm::vec2 center = corner+tileSize*glm::vec2(xy.x-minx,xy.y-miny);
-		return center;
-	}
-	Tile* find(int x, int y, Tile* start,bool flag){
-		if(start == NULL || start == nullptr || start->flag == flag) return NULL;
-		else if(start->x == x && start->y == y) return start;
-		else{
-			start->flag = flag; //mark processed
-			Tile* found1 = find(x,y,start->up,flag);
-			Tile* found2 = find(x,y,start->down,flag);
-			Tile* found3 = find(x,y,start->left,flag);
-			Tile* found4 = find(x,y,start->right,flag);
-			return (found1 != NULL)? found1 : ((found2 != NULL)? found2 : ((found3 != NULL)? found3 : found4));
-		}
-	}
-
-	void freeTiles(Tile* current, bool flag){
-		if(current == NULL || current == nullptr || current->flag == flag) return;
-		current->flag = flag;
-
-		freeTiles(current->up,flag);
-		freeTiles(current->down,flag);
-		freeTiles(current->left,flag);
-		freeTiles(current->right,flag);
-		
-		free(current);
-	}
-
-	Tile getRandTile(){
-		static auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-		static auto random = std::bind(std::uniform_real_distribution<float>(0,1),std::mt19937(seed));
-
-
-
-		int tileCount = 0;
-		for(int i=0;i<20;i++) tileCount += tile_freqs[i];
-
-		if(tileCount == 0) return Tile(0,center->flag,0,0);
-		else{
-			int randint = tileCount*random();
-			int idx = 0;
-			while(randint>=0) randint -= tile_freqs[idx++];
-			tile_freqs[--idx]--;
-			Tile randtile = Tile(idx,center->flag,-1,-1);
-			printf("Received tile %d (%s,%s,%s,%s)\n",idx,
-				TERR_STR(randtile.getTerrain(0)),
-				TERR_STR(randtile.getTerrain(1)),
-				TERR_STR(randtile.getTerrain(2)),
-				TERR_STR(randtile.getTerrain(3)));
-			return randtile;
-		}
-	}
-
-	bool connectTile(bool flag,Tile* tile,Tile* curTile){
-		if(curTile == nullptr || curTile == NULL || curTile->flag==flag) return true;
-		curTile->flag = flag; //set as processed
-
-		//check if adjacent
-		bool valid0 = true;
-		if(curTile->x==tile->x && curTile->y==tile->y+1){ 
-			Terrain active = tile->getTerrain(0);
-			Terrain neighbor = curTile->getTerrain(2);
-			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
-
-			if(!canConnect(active,neighbor)) valid0 = false;
-			tile->up = curTile;
-			curTile->down = tile;
-		}else if(curTile->x==tile->x && curTile->y==tile->y-1){ 
-			Terrain active = tile->getTerrain(2);
-			Terrain neighbor = curTile->getTerrain(0);	
-			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
-
-			if(!canConnect(active,neighbor)) valid0 = false;
-			tile->down = curTile;
-			curTile->up = tile;
-		}else if(curTile->x==tile->x-1 && curTile->y==tile->y){ 
-			Terrain active = tile->getTerrain(3);
-			Terrain neighbor = curTile->getTerrain(1);
-			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
-	
-			if(!canConnect(active,neighbor)) valid0 = false;
-			tile->left = curTile;
-			curTile->right = tile;
-		}else if(curTile->x==tile->x+1 && curTile->y==tile->y){ 
-			Terrain active = tile->getTerrain(1);
-			Terrain neighbor = curTile->getTerrain(3);
-			printf("holding %s to %s\n",TERR_STR(active),TERR_STR(neighbor));
-	
-			if(!canConnect(active,neighbor)) valid0 = false;
-			tile->right = curTile;
-			curTile->left = tile;
-		}
-
-		//recurse
-		bool valid1 = connectTile(flag,tile,curTile->left);
-		bool valid2 = connectTile(flag,tile,curTile->right);
-		bool valid3 = connectTile(flag,tile,curTile->up);
-		bool valid4 = connectTile(flag,tile,curTile->down);
-		return valid0 && valid1 && valid2 && valid3 && valid4;
-	}
-
-	bool addTile(Tile* tile){ //place and ret true if valid, otherwise don't place and return false
-		tile->flag = !center->flag; //all flags will be switched by next op
-		bool valid = connectTile(!center->flag,tile,center);
-
-		bool wasAdjacent = (tile->left != nullptr) || (tile->right != nullptr) ||
-				(tile->up != nullptr) || (tile->down != nullptr);
-
-		if(!valid || !wasAdjacent){
-			//not valid so undo any changes
-			if(tile->up != nullptr){
-				tile->up->down = nullptr;
-				tile->up = nullptr;
-			}
-			if(tile->down != nullptr){
-				tile->down->up = nullptr;
-				tile->down = nullptr;
-			}
-			if(tile->left != nullptr){
-				tile->left->right = nullptr;
-				tile->left = nullptr;
-			}
-			if(tile->right != nullptr){
-				tile->right->left = nullptr;
-				tile->right = nullptr;
-			}
-			return false;
-		}else{
-			//valid so update board dimensions
-			int x = tile->x;
-			int y = tile->y;
-		
-			if(x>maxx) maxx=x;
-			if(x<minx) minx=x;
-			if(y>maxy) maxy=y;
-			if(y<miny) miny=y;
-
-			return true;
-		}
-	}
-	
-	int completedCastle(Tile* tile,bool flag, int dir,int score = 0, bool firstCall=true,bool flagging=false){
-		if(tile == NULL || tile == nullptr) return -1; //have a hole in your castle
-		else if(tile->flag == flag) return score; //already looked here, assume okay
-		else{
-			tile->flag = flag; //process this tile as new
-			if(score>=0) score++;
-		}
-
-		if(!flagging){
-			if(tile->getTerrain(dir) == Terrain::End){ //END closes castle
-				if(firstCall) score = completedCastle(*(&(tile->up)+dir),flag,(dir+2)%4,score,false);
-			}else{ //flood fill out to find walls
-				for(int side=0;side<4;side++){
-					if(tile->getTerrain(side) == Terrain::Castle){
-						score = completedCastle(*(&(tile->up)+side),flag,(side+2)%4,score,false);
-					}
-				}
-			}
-		}
-
-		for(int side=0;side<4;side++) //to maintain valid data structure, must flip ALL flags on board
-			completedCastle(*(&(tile->up)+side),flag,-1,-1,false,true); //balance flags
-
-		return score;
-	}
-
-	int getWidth(){ return maxx-minx+1;}
-	int getHeight(){ return maxy-miny+1;}
-
-	void mapDraw(std::function<void (Tile*)> drawFn, bool flag, Tile* curTile){
-		if(curTile == nullptr || curTile == NULL || curTile->flag == flag) return;
-		curTile->flag = flag;
-		drawFn(curTile);
-		mapDraw(drawFn,flag,curTile->left);
-		mapDraw(drawFn,flag,curTile->right);
-		mapDraw(drawFn,flag,curTile->up);
-		mapDraw(drawFn,flag,curTile->down);
-	}
-};
-
-Terrain Board::sides[20][4] = {{Terrain::Grass,Terrain::Grass,Terrain::Grass,Terrain::Grass},
-			       {Terrain::Road,Terrain::Grass,Terrain::Road,Terrain::Grass},
-			       {Terrain::Road,Terrain::Road,Terrain::Road,Terrain::Road},
-			       {Terrain::Grass,Terrain::Road,Terrain::Road,Terrain::Road},
-			       {Terrain::Grass,Terrain::Grass,Terrain::Road,Terrain::Road},
-			       {Terrain::End,Terrain::Road,Terrain::Grass,Terrain::Road},//5
-
-			       {Terrain::End,Terrain::Grass,Terrain::Road,Terrain::Road},
-			       {Terrain::End,Terrain::Road,Terrain::Road,Terrain::Grass},
-			       {Terrain::End,Terrain::Road,Terrain::Road,Terrain::Road},
-			       {Terrain::End,Terrain::Grass,Terrain::Grass,Terrain::Grass},
-			       {Terrain::End,Terrain::Grass,Terrain::Grass,Terrain::End},//10
-
-			       {Terrain::Grass,Terrain::End,Terrain::Grass,Terrain::End},
-			       {Terrain::Grass,Terrain::Grass,Terrain::Grass,Terrain::Grass},
-			       {Terrain::Grass,Terrain::Grass,Terrain::Road,Terrain::Grass},
-			       {Terrain::Castle,Terrain::Road,Terrain::Road,Terrain::Castle},
-			       {Terrain::Castle,Terrain::Grass,Terrain::Grass,Terrain::Castle},//15
-
-			       {Terrain::Castle,Terrain::Castle,Terrain::Grass,Terrain::Castle},
-			       {Terrain::Castle,Terrain::Castle,Terrain::Road,Terrain::Castle},
-			       {Terrain::Grass,Terrain::Castle,Terrain::Grass,Terrain::Castle},
-			       {Terrain::Castle,Terrain::Castle,Terrain::Castle,Terrain::Castle}};
-Tile::Tile(int tileNum, bool flag, int x, int y){
-	this->x=x;
-	this->y=y;
-	this->tileNum = tileNum;
-	for(int i=0;i<4;i++) sides[i] = Board::sides[tileNum][i];
-	left=right=up=down=nullptr;
-	flag = flag;
-	rotation = 0;
-	hasChurch = (tileNum == 12 || tileNum == 13);
-}
 int main(int argc, char **argv) {
 	int numPlayers = 2;
 	if(argc == 2) numPlayers = std::stoi(std::string(argv[1]));
@@ -306,26 +27,10 @@ int main(int argc, char **argv) {
 	for(int i=0;i<numPlayers;i++) players[i] = Player();
 	int playerIdx = 0;
 
-	/*auto printTerrain = [&](int tileIdx,int sideIdx){
-		switch(Board::sides[tileIdx][sideIdx]){
-		case Terrain::Grass:
-			printf("Grass\n");
-			break;
-		case Terrain::Road:
-			printf("Road\n");
-			break;
-		case Terrain::Castle:
-			printf("Castle\n");
-			break;
-		default:
-			printf("Castle end\n");
-		}
-	};*/
-
 	//Configuration:
 	struct {
 		std::string title = "Carcassonne Lite";
-		glm::uvec2 size = glm::uvec2(640, 640);
+		glm::uvec2 size = glm::uvec2(800, 800);
 	} config;
 
 	//------------  initialization ------------
@@ -556,13 +261,13 @@ int main(int argc, char **argv) {
 	printf("Creating assets...\n");
 	Tile center = Tile(5,false,0,0);
 	Board board = Board(&center);
-	Tile* activeTile = (Tile*) malloc(sizeof(Tile));
-	*activeTile = board.getRandTile();
+	Tile* activeTile = board.getRandTile();
 	std::string msg = "Player 1 turn";
 
 	//------------ game loop ------------
 	printf("starting game loop\n");
 	bool should_quit = false;
+	bool gameover = false;
 	while (true) {
 		static SDL_Event evt;
 		while (SDL_PollEvent(&evt) == 1) {
@@ -570,51 +275,62 @@ int main(int argc, char **argv) {
 			if (evt.type == SDL_MOUSEMOTION) {
 				mouse.x = (evt.motion.x + 0.5f) / float(config.size.x) * 2.0f - 1.0f;
 				mouse.y = (evt.motion.y + 0.5f) / float(config.size.y) *-2.0f + 1.0f;
-			} else if (evt.type == SDL_MOUSEBUTTONDOWN) {
-				//attempting to place a tile
-				int2 xy = board.mouseToXY(mouse);
-				printf("(%d,%d)\n",xy.x,xy.y);
-				if(board.find(xy.x,xy.y,board.center,!board.center->flag) != NULL){
-					printf("Tile already found\n");
-				}else{
-					printf("adding\n");
-					activeTile->x = xy.x;
-					activeTile->y = xy.y;
-					if(board.addTile(activeTile)){
-						if(activeTile->hasChurch) players[playerIdx].score++;
-						else{ //check if completed a castle
-							for(int dir=0;dir<4;dir++){
-								Terrain terr = activeTile->getTerrain(dir);
-								if(terr == Terrain::Castle || terr == Terrain::End){
-									int score = board.completedCastle(activeTile,!activeTile->flag,dir);
-									if(score != -1){
-										printf("Completed from %d with a score of %d!\n",dir,score);
-										players[playerIdx].score+=score;
+			} else if (!gameover && evt.type == SDL_MOUSEBUTTONDOWN) {
+				if(evt.button.button == SDL_BUTTON_RIGHT){
+					activeTile->rotate(90);
+				}else{//attempting to place a tile
+					int2 xy = board.mouseToXY(mouse);
+					if(board.find(xy.x,xy.y) != nullptr){
+						printf("Tile already found\n");
+					}else{
+						printf("adding\n");
+						activeTile->x = xy.x;
+						activeTile->y = xy.y;
+						if(board.addTile(activeTile)){
+							if(activeTile->hasChurch) players[playerIdx].score++;
+							else{ //check if completed a castle
+								for(int dir=0;dir<4;dir++){
+									Terrain terr = activeTile->getTerrain(dir);
+									if(terr == Terrain::Castle || terr == Terrain::End){
+										int score = board.completedCastle(activeTile,!activeTile->flag,dir);
+										board.setFlag(false);
+										if(score != -1){
+											printf("Completed from %d with a score of %d!\n",dir,score);
+											players[playerIdx].score+=score;
+										}
+										if(terr == Terrain::Castle) break; //castle sides are fully conn so check only one
 									}
-									if(terr == Terrain::Castle) break; //castle sides are fully conn so check only one
 								}
 							}
-						}
-						activeTile = (Tile*) malloc(sizeof(Tile));
-						*activeTile = board.getRandTile();
-						if(activeTile->tileNum == 0){
-							printf("END OF GAME\n");
-							should_quit = true;
-						}
-						playerIdx= (playerIdx + 1) % numPlayers; //turn switches
-						msg = std::string("player ") + std::to_string(playerIdx) + std::string(" turn with ") +
-						     std::to_string(players[playerIdx].score) + std::string(" points");
-						for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
-					}else printf("INVALID PLACEMENT\n");
+							activeTile = board.getRandTile();
+							if(activeTile == nullptr){
+								gameover = true;
+								printf("END OF GAME\n");
+								int curmax = players[0].score,
+								    curidx = 0;
+								printf("\tPlayer 0: %d\n",curmax);
+								for(int i=1;i<numPlayers;i++){
+									printf("\tPlayer %d: %d\n",i,players[i].score);
+									if(players[i].score > curmax){
+										curidx = i;
+										curmax = players[i].score;
+									}
+								}
+								msg = std::string("Game over Player ")+std::to_string(curidx)+
+									std::string(" wins with ")+std::to_string(curmax)+std::string(" points");
+							}else{
+								playerIdx= (playerIdx + 1) % numPlayers; //turn switches
+								msg = std::string("player ") + std::to_string(playerIdx) + std::string(" turn with ") +
+							     	std::to_string(players[playerIdx].score) + std::string(" points");
+								if(numPlayers == 2) msg += std::string(" while player ")+std::to_string(playerIdx^1)
+									+std::string(" has ")+std::to_string(players[playerIdx^1].score)+std::string(" points");
+								for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
+							}
+						}else printf("INVALID PLACEMENT\n");
+					}
 				}
-			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
-				activeTile->rotation = (activeTile->rotation + 90) % 360;
-			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_p){
-				printf("currently: %s,%s,%s,%s\n",
-					TERR_STR(activeTile->getTerrain(0)),
-					TERR_STR(activeTile->getTerrain(1)),
-					TERR_STR(activeTile->getTerrain(2)),
-					TERR_STR(activeTile->getTerrain(3)));
+			} else if (!gameover && evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
+				activeTile->rotate(90);
 			} else if (evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_ESCAPE) {
 				should_quit = true;
 			} else if (evt.type == SDL_QUIT) {
@@ -663,30 +379,32 @@ int main(int argc, char **argv) {
 			float tileSize = 2.f/(2+std::max(width,height));
 	
 			auto drawTile = [tileSize,board,draw_sprite,load_sprite](Tile* tile){
-				//printf("drawing %d at %dx%d\n",tile->tileNum,tile->x,tile->y);
 				SpriteInfo textile = load_sprite(tile->tileNum); //5 columns in tex atlas
 				int x = tile->x - board.minx,
 				    y = tile->y - board.miny;
 				glm::vec2 center = glm::vec2(-1+1.5*tileSize,-1+1.5*tileSize)+tileSize*glm::vec2(x,y); //leave border in case wan to place tile on border
 				draw_sprite(textile,center,0.5*tileSize,0.5*tileSize,tile->rotation*3.14159265f/180);
 			};
-			auto drawText = [draw_sprite,load_sprite](std::string phrase,glm::vec2 start,float fontWeight=0.02){ //start is center of first character
+			#define TEXT_SIZE 0.02f
+			#define CHAR_PAD 0.01f
+			auto drawText = [draw_sprite,load_sprite](std::string phrase,glm::vec2 start,float fontWeight=TEXT_SIZE){ //start is center of first character
 				glm::vec2 curLoc = start;
 				for(unsigned int i=0;i<phrase.length();i++){
 					if(phrase[i] != ' '){
 						SpriteInfo character = load_sprite(phrase[i],false);
 						draw_sprite(character,curLoc,fontWeight);
 					}
-					curLoc += glm::vec2(fontWeight,0);
+					curLoc += glm::vec2(fontWeight+CHAR_PAD,0);
 				}
 			};
-			//printf("---------------------------\n");
 			board.mapDraw(drawTile,!board.center->flag,board.center);
-			//now draw currently held tile
-			SpriteInfo activeInfo = load_sprite(activeTile->tileNum);
-			draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
-			drawText(std::string("Carcassonne Lite"), glm::vec2(-0.4,0.95),0.05);
-			drawText(msg,glm::vec2(-0.04f*msg.length()/2,0.88),0.04);
+			
+			if(activeTile != nullptr){//now draw currently held tile
+				SpriteInfo activeInfo = load_sprite(activeTile->tileNum);
+				draw_sprite(activeInfo,mouse*camera.radius+camera.at,0.5*tileSize,0.5*tileSize,activeTile->rotation*3.14159265f/180);
+			}
+			drawText(config.title, glm::vec2(-(2*TEXT_SIZE+CHAR_PAD)*config.title.length()/2,0.95),TEXT_SIZE*2);
+			drawText(msg,glm::vec2(-(TEXT_SIZE+CHAR_PAD)*msg.length()/2,0.88));
 
 			glBindBuffer(GL_ARRAY_BUFFER, buffer);
 			glBufferData(GL_ARRAY_BUFFER, sizeof(Vertex) * verts.size(), &verts[0], GL_STREAM_DRAW);
