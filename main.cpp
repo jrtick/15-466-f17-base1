@@ -326,7 +326,10 @@ int main(int argc, char **argv) {
 									+std::string(" has ")+std::to_string(players[playerIdx^1].score)+std::string(" points");
 								for(int i=0;i<numPlayers;i++) printf("player %d: %d\n",i,players[i].score);
 							}
-						}else printf("INVALID PLACEMENT\n");
+						}else{
+							printf("INVALID PLACEMENT\n");
+							activeTile->x = activeTile->y = 1<<30;
+						}
 					}
 				}
 			} else if (!gameover && evt.type == SDL_KEYDOWN && evt.key.keysym.sym == SDLK_r){ //rotate
