@@ -8,6 +8,8 @@
 ## Build Notes
 Gameplay defaults to being between two players. If you run "./main X" instead of just "./main", you will play with X players.
 
+To rotate a tile, you can either right click or press 'r'.
+
 ## Asset Pipeline
 
 I drew the Carcassonne tiles based off the tileset provided in the design document. 
@@ -15,10 +17,10 @@ I then downloaded a free font known as Maxwell, which I took a screenshot of fro
 I concatenated these two images into one image, from which I defined offsets into so that I could reference certain tiles/characters in my code.
 
 ## Architecture
-I like recursive data structures! I modelled the board game as a graph, where every tile knows about its left/right/up/down neighbor. These pointers are NULL if no such neighbor exists.
+I like recursive data structures! I modelled the board as a graph, where every tile knows about its left/right/up/down neighbor. These pointers are NULL if no such neighbor exists.
 The benefit of this data structure is that I wouldn't have to keep expanding some 2D grid representation of the board every time a new tile was added. Also, operations to find out if a castle was completed could nicely be written recursively as a sort of 'flood fill operation'.
 
-The difficulty, however, was keeping a 'processed' flag on each tile and making sure these flags didn't get corrupted. If a function wanted to use the process flag, it had to eventually flip ALL process flags on the board to maintin validity.
+The difficulty, however, was keeping a 'processed' flag on each tile and making sure these flags didn't get corrupted. If a function wanted to use the processed flag, it had to eventually flip ALL processed flags on the board to maintin validity.
 
 For other architecture notes:
  - In my texture atlas, I stored everything as a 2D grid so things could be easily indexed.
@@ -27,13 +29,13 @@ For other architecture notes:
 
 ## Reflection
 
-The texture atlas of the project worked very well! There were no hiccups once I understood texture coordinates went from (0,0) in the bottom-left and (1,1) in the top-right.
+The texture atlas part of the project worked very well! There were no hiccups once I understood texture coordinates went from (0,0) in the bottom-left and (1,1) in the top-right.
 
 The hardest part of this project was making the recursive board data structure fully functional. But it was also the most fun! I feel like the solutions are much more elegant.
 
-If I had more time on this project, I would've picked a more complete font and created a more polished GUI, potentially highlighting on the board where the current tile could potentially be placed. I like my data structures the way they currently are, though, so I wouldn't want to change much of anything already implemented.
+If I had more time on this project, I would've picked a more complete font, centered the letters better on my texture atlas, and created a more polished GUI, potentially highlighting on the board where the current tile could potentially be placed. I like my data structures the way they currently are, though, so I wouldn't want to change much of anything already implemented.
 
-I actually wrote this design document, so I'd say it was pretty clear to me!
+I actually wrote this design document, so I'd say the instructions were pretty clear to me!
 
 
 # About Base1
